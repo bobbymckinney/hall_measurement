@@ -1,1 +1,1 @@
-python Google\ Drive/hall_measurement/program_hightemp/RT_HallEffectGUIv1.py
+python Google\ Drive/hall_measurement/program_roomtemp/RT_HallEffectGUIv1.py

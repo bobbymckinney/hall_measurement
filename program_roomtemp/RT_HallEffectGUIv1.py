@@ -301,6 +301,7 @@ class Lakeshore_643(serial.Serial):
 
         #set current to 0
         self.setCurrent(0)
+        self.setRampRate(magrate)
 
     #end init
 
@@ -430,7 +431,6 @@ class InitialCheck:
     def __init__(self):
         global k2700
         global k2400
-        global current
 
         self.k2700 = k2700
         self.k2400 = k2400
@@ -440,25 +440,18 @@ class InitialCheck:
         self.voltage = .1
 
 
-        self.measurement = 'ON'
-        self.updateGUI(stamp='Measurement Status', data=self.measurement)
         self.setupIV()
 
         self.Data = {}
 
         # short the matrix card
-        self.k2700.closeChannels('117, 125, 126, 127, 128, 129, 130')
+        self.k2700.closeChannels('117, 125, 126, 127, 128, 129,130')
         print(self.k2700.get_closedChannels())
         time.sleep(self.delay)
 
         self.measure_contacts()
 
-        self.reset_for_measurement()
-
         self.create_plot()
-
-
-
 
 
     #end init
@@ -477,23 +470,16 @@ class InitialCheck:
     #end def
     #--------------------------------------------------------------------------
 
-    #--------------------------------------------------------------------------
-    def reset_for_measurement(self):
-        self.k2400.ctrl.write(":ROUT:TERM REAR") # Use the rear output terminals
-        self.k2400.current_mode()
-        self.k2400.set_current_range(10.5*10**(-3)) # Default
-        self.k2400.set_current(float(current))
-    #end def
-    #--------------------------------------------------------------------------
 
     #--------------------------------------------------------------------------
     def measure_contacts(self):
+
         # r_12
         print('measure r_12')
-        self.k2700.openChannels('125, 126, 127, 128, 129, 130')
+        self.k2700.openChannels('125, 126, 127, 128,129,130')
         print(self.k2700.get_closedChannels())
         self.r_12 = self.checkIV('A','B')
-        self.k2700.closeChannels('125, 126, 127, 128, 129, 130')
+        self.k2700.closeChannels('125, 126, 127, 128,129,130')
         print(self.k2700.get_closedChannels())
         print "r12: %f Ohm" % (self.r_12)
 
@@ -503,10 +489,10 @@ class InitialCheck:
         print('measure r_13')
         self.k2700.closeChannels('119')
         print(self.k2700.get_closedChannels())
-        self.k2700.openChannels('117, 125, 126, 127, 128, 129, 130')
+        self.k2700.openChannels('117, 125, 126, 127, 128,129,130')
         print(self.k2700.get_closedChannels())
         self.r_13 = self.checkIV('A','C')
-        self.k2700.closeChannels('117, 125, 126, 127, 128, 129, 130')
+        self.k2700.closeChannels('117, 125, 126, 127, 128,129,130')
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('119')
         print(self.k2700.get_closedChannels())
@@ -518,10 +504,10 @@ class InitialCheck:
         print('measure r_24')
         self.k2700.closeChannels('120')
         print(self.k2700.get_closedChannels())
-        self.k2700.openChannels('117, 125, 126, 127, 128, 129, 130')
+        self.k2700.openChannels('117, 125, 126, 127, 128,129,130')
         print(self.k2700.get_closedChannels())
         self.r_24 = self.checkIV('B','D')
-        self.k2700.closeChannels('117, 125, 126, 127, 128, 129, 130')
+        self.k2700.closeChannels('117, 125, 126, 127, 128,129,130')
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('120')
         print(self.k2700.get_closedChannels())
@@ -533,14 +519,15 @@ class InitialCheck:
         print('measure r_34')
         self.k2700.closeChannels('118')
         print(self.k2700.get_closedChannels())
-        self.k2700.openChannels('117, 125, 126, 127, 128, 129, 130')
+        self.k2700.openChannels('117, 125, 126, 127, 128,129,130')
         print(self.k2700.get_closedChannels())
         self.r_34 = self.checkIV('C','D')
-        self.k2700.closeChannels('117, 125, 126, 127, 128, 129, 130')
+        self.k2700.closeChannels('117, 125, 126, 127, 128,129,130')
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('118')
         print(self.k2700.get_closedChannels())
         print "r34: %f Ohm" % (self.r_34)
+
     #end def
     #--------------------------------------------------------------------------
 
@@ -646,6 +633,7 @@ class InitialCheck:
         """
         time.sleep(0.1)
         wx.CallAfter(pub.sendMessage, stamp, msg=data)
+
     #end def
 
 #end class
@@ -669,8 +657,7 @@ class ProcessThreadRun(Thread):
     #--------------------------------------------------------------------------
     def run(self):
         """ Run Worker Thread """
-        #Setup()
-        td=TakeData()
+        td = TakeData()
         #td = TakeDataTest()
     #end def
 
@@ -1317,7 +1304,7 @@ class UserPanel(wx.Panel):
                 abort_ID = 0
 
                 #start the threading process
-
+                sp = Setup()
                 thread = ProcessThreadRun()
 
                 self.btn_run.Disable()
@@ -1409,7 +1396,7 @@ class UserPanel(wx.Panel):
     #--------------------------------------------------------------------------
     def check(self, event):
 
-        InitialCheck()
+        ic = InitialCheck()
 
 
     #end def
@@ -1453,8 +1440,9 @@ class UserPanel(wx.Panel):
     #--------------------------------------------------------------------------
     def save_current(self, e):
         global current
+
         try:
-            self.k2400 = k2400 # SourceMeter
+
 
             val = self.edit_current.GetValue()
 
@@ -1468,8 +1456,6 @@ class UserPanel(wx.Panel):
             current = float(val)/1000
             self.current = current*1000
 
-            self.k2400.change_current_range(current)
-            self.k2400.set_current(current)
 
         except ValueError:
             wx.MessageBox("Invalid input. Must be a number.", "Error")
@@ -1511,7 +1497,6 @@ class UserPanel(wx.Panel):
     def save_mag_current(self, e):
         global magcurrent
         try:
-            self.ls643 = ls643 # magPowerSupply
 
             val = self.edit_mag_current.GetValue()
 
@@ -1525,7 +1510,6 @@ class UserPanel(wx.Panel):
             magcurrent = float(val)
             self.magcurrent = magcurrent
 
-            self.ls643.setCurrent(magcurrent)
 
         except ValueError:
             wx.MessageBox("Invalid input. Must be a number.", "Error")
@@ -1567,7 +1551,7 @@ class UserPanel(wx.Panel):
     def save_mag_rate(self, e):
         global magrate
         try:
-            self.ls643 = ls643 # magPowerSupply
+
 
             val = self.edit_mag_rate.GetValue()
 
@@ -1579,7 +1563,6 @@ class UserPanel(wx.Panel):
             magrate = float(val)
             self.magrate = magrate
 
-            self.ls643.setRampRate(magrate)
 
         except ValueError:
             wx.MessageBox("Invalid input. Must be a number.", "Error")
