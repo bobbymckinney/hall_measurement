@@ -451,6 +451,7 @@ class InitialCheck:
 
         self.measure_contacts()
 
+        self.resetSourcemeter()
         self.create_plot()
 
 
@@ -469,7 +470,14 @@ class InitialCheck:
         self.k2400.ctrl.write(":FORM:ELEM CURR")
     #end def
     #--------------------------------------------------------------------------
-
+    
+    #--------------------------------------------------------------------------
+    def resetSourcemeter(self):
+        self.k2400.current_mode()
+        self.k2400.set_current_range(10.5*10**(-3)) # Default
+        self.k2400.set_current(float(current))
+    #end def
+    #--------------------------------------------------------------------------
 
     #--------------------------------------------------------------------------
     def measure_contacts(self):
@@ -1287,31 +1295,28 @@ class UserPanel(wx.Panel):
 
             self.name_folder()
 
-            if self.run_check == wx.ID_OK:
+            file = dataFile # creates a data file
+            myfile = open(dataFile, 'w') # opens file for writing/overwriting
+            begin = datetime.now() # Current date and time
+            myfile.write('Start Time: ' + str(begin) + '\n')
 
-                file = dataFile # creates a data file
-                myfile = open(dataFile, 'w') # opens file for writing/overwriting
-                begin = datetime.now() # Current date and time
-                myfile.write('Start Time: ' + str(begin) + '\n')
+            resistances1 = 't_1234,r_1234,t_3412,r_3412,t_1324,r_1324,t_2413,r_2413'
+            resistances2 =  'tp_1423,rp_1423,tn_1423,rn_1423,tp_2314,rp_2314,tn_2314,rn_2314'
+            headers = ( 'time (s),thickness (cm), B-field (T),%s,%s,' % (resistances1, resistances2) + 'r_A,r_B,r_P' )
 
-                resistances1 = 't_1234,r_1234,t_3412,r_3412,t_1324,r_1324,t_2413,r_2413'
-                resistances2 =  'tp_1423,rp_1423,tn_1423,rn_1423,tp_2314,rp_2314,tn_2314,rn_2314'
-                headers = ( 'time (s),thickness (cm), B-field (T),%s,%s,' % (resistances1, resistances2) + 'r_A,r_B,r_P' )
+            myfile.write(headers)
+            myfile.write('\n')
 
-                myfile.write(headers)
-                myfile.write('\n')
+            abort_ID = 0
 
-                abort_ID = 0
+            #start the threading process
+            
+            thread = ProcessThreadRun()
 
-                #start the threading process
-                sp = Setup()
-                thread = ProcessThreadRun()
+            self.btn_run.Disable()
+            self.btn_check.Disable()
+            self.btn_stop.Enable()
 
-                self.btn_run.Disable()
-                self.btn_check.Disable()
-                self.btn_stop.Enable()
-
-            #end if
 
         #end try
 
