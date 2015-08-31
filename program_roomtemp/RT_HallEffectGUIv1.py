@@ -40,9 +40,6 @@ from MagFieldInterpolator import fieldInterp
 # for a fancy status bar:
 import EnhancedStatusBar as ESB
 
-# For finding sheet resistance:
-import RT_Hall_Processing_v1
-
 #==============================================================================
 # Keeps Windows from complaining that the port is already open:
 
@@ -55,6 +52,7 @@ Global Variables:
 # Naming a data file:
 dataFile = 'Data_Backup.csv'
 finaldataFile = 'Data.csv'
+hallFile = 'Hall.csv'
 
 thickness = '0.1' #placeholder for sample thickness in cm
 poledist = '30' #placeholder for distance between magnet poles in mm
@@ -63,7 +61,7 @@ current = .04 # (A) Current that is sourced by the k2400
 magcurrent = 70 # (A) Current that is supplied by the mag power supply
 magrate = 30 # (A) Current ramp rate that is supplied to the mag power supply
 APP_EXIT = 1 # id for File\Quit
-measurement_time = 30*60 # Time for a measurement
+measurement_number = 30 # number of measurements
 
 maxCurrent = .2 # (A) Restricts the user to a max current
 maxMagCurrent = 70 # (A) Restricts the user to a max current on mag power supply
@@ -82,6 +80,7 @@ filePath = 'global file path'
 
 # placer for files to be created
 myfile = 'global file'
+processfile = 'global file'
 
 # Placers for the GUI plots:
 r_A_list = []
@@ -470,7 +469,7 @@ class InitialCheck:
         self.k2400.ctrl.write(":FORM:ELEM CURR")
     #end def
     #--------------------------------------------------------------------------
-    
+
     #--------------------------------------------------------------------------
     def resetSourcemeter(self):
         self.k2400.current_mode()
@@ -683,7 +682,7 @@ class TakeData:
         global magrate
         global poledist
         global cycle
-        global measurement_time
+        global measurement_number
 
         self.k2400 = k2400
         self.k2700 = k2700
@@ -698,14 +697,9 @@ class TakeData:
         self.magrate = magrate
         self.poledist = float(poledist)
         self.thickness = float(thickness)
-        self.measurement_time = measurement_time
 
         self.k2400.set_current(self.current)
         self.ls643.setCurrent(0)
-
-        self.measurement = 'OFF'
-        self.updateGUI(stamp='Measurement', data=self.measurement)
-        self.measurement_time_left = '-'
 
         self.exception_ID = 0
 
@@ -716,20 +710,34 @@ class TakeData:
         try:
             self.measurement='ON'
             self.updateGUI(stamp='Measurement', data=self.measurement)
-            while abort_ID == 0:
+            for n in range(measurement_number):
                 self.safety_check()
-                self.begin_measurement() # Resistance measurements
+                if abort_ID == 1: break
+                # short the matrix card
+                self.k2700.closeChannels('117, 125, 126, 127, 128, 129, 130')
+                print(self.k2700.get_closedChannels())
+                time.sleep(self.delay)
 
-                self.measurement_time_left = int(self.measurement_time - ( time.time() - self.start))
+                ### RESISTIVITY MEASUREMENTS ###
+                self.Resistivity_Measurement()
+                if abort_ID == 1: break
+                self.resistivity = self.resistivitycalc([self.r_A],[self.r_B])
+                self.updateGUI(stamp = "Resistivity", data = self.resistivity*1000)
 
-                if ( self.measurement_time_left < 0 ):
-                    self.updateGUI(stamp="Status Bar", data='-mea')
-                    abort_ID = 1
-                #end if
-                else:
-                    self.updateGUI(stamp="Status Bar", data=str(self.measurement_time_left) + 'mea')
+                ### HALL EFFECT MEASUREMENTS ###
+                self.Hall_Measurement()
+                if abort_ID == 1: break
+                self.hallcoeff, self.concentration, self.mobility = self.hallcalc(self.thickness, self.bfield, self.R_P, self.resistivity)
 
-            #end while
+                self.all_time = (self.t_A + self.t_B + self.t_P)/3
+                self.updateGUI(stamp = "Hall Coefficient", data = self.hallcoeff)
+                self.updateGUI(stamp = "Carrier Concentration", data = self.concentration)
+                self.updateGUI(stamp = "Mobility", data = self.mobility)
+
+                self.write_data_to_file()
+            #end for
+            if abort_ID == 1: break
+
         #end try
 
         except exceptions.Exception as e:
@@ -749,6 +757,8 @@ class TakeData:
             self.updateGUI(stamp='Status Bar', data='Finished, Ready')
         #end else
         self.measurement = 'OFF'
+
+        self.process_data()
         self.updateGUI(stamp='Measurement', data=self.measurement)
         self.save_files()
 
@@ -757,10 +767,7 @@ class TakeData:
         time.sleep(10)
         self.ls643.stopRamp()
 
-        wx.CallAfter(pub.sendMessage, 'Post Process')
         wx.CallAfter(pub.sendMessage, 'Enable Buttons')
-        wx.CallAfter(pub.sendMessage, 'Join Thread')
-
     #end init
 
     #--------------------------------------------------------------------------
@@ -768,31 +775,6 @@ class TakeData:
         magerror = self.ls643.errorTest()
         if magerror != 0:
             abort_ID = 1
-    #end def
-
-    #--------------------------------------------------------------------------
-    def begin_measurement(self):
-
-
-
-        # short the matrix card
-        self.k2700.closeChannels('117, 125, 126, 127, 128, 129, 130')
-        print(self.k2700.get_closedChannels())
-        time.sleep(self.delay)
-
-        ### RESISTIVITY MEASUREMENTS ###
-        self.Resistivity_Measurement()
-
-        ### HALL EFFECT MEASUREMENTS ###
-        self.Hall_Measurement()
-
-        self.all_time = (self.t_A + self.t_B + self.t_P)/3
-
-        self.resistances1 = (self.t_1234, self.r_1234, self.t_3412, self.r_3412, self.t_1324, self.r_1324, self.t_2413, self.r_2413)
-        self.resistances2 = (self.tp_1423, self.rp_1423, self.tn_1423, self.rn_1423, self.tp_2314, self.rp_2314, self.tn_2314,self.rn_2314)
-
-        self.write_data_to_file()
-
     #end def
 
     #--------------------------------------------------------------------------
@@ -806,8 +788,6 @@ class TakeData:
         #self.r_1234 = abs(self.r_1234)
         self.k2700.closeChannels('125, 127, 128, 129, 130')
         print(self.k2700.get_closedChannels())
-        self.updateGUI(stamp="Time R_1234", data=self.t_1234)
-        self.updateGUI(stamp="R_1234", data=self.r_1234*1000)
         print "t_r1234: %.2f s\tr1234: %f Ohm" % (self.t_1234, self.r_1234)
 
         time.sleep(self.delay)
@@ -824,8 +804,6 @@ class TakeData:
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('118')
         print(self.k2700.get_closedChannels())
-        self.updateGUI(stamp="Time R_3412", data=self.t_3412)
-        self.updateGUI(stamp="R_3412", data=self.r_3412*1000)
         print "t_r3412: %.2f s\tr3412: %f Ohm" % (self.t_3412, self.r_3412)
 
         time.sleep(self.delay)
@@ -834,7 +812,7 @@ class TakeData:
         self.r_A = (self.r_1234 + self.r_3412)/2
         self.t_A = time.time()-self.start
         self.updateGUI(stamp="Time R_A", data=self.t_A)
-        self.updateGUI(stamp="R_A", data=self.r_A)
+        self.updateGUI(stamp="R_A", data=self.r_A*1000)
         print "t_rA: %.2f s\trA: %f Ohm" % (self.t_A, self.r_A)
 
         ### r_B:
@@ -850,8 +828,6 @@ class TakeData:
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('119')
         print(self.k2700.get_closedChannels())
-        self.updateGUI(stamp="Time R_1324", data=self.t_1324)
-        self.updateGUI(stamp="R_1324", data=self.r_1324*1000)
         print "t_r1324: %.2f s\tr1324: %f Ohm" % (self.t_1324, self.r_1324)
 
         time.sleep(self.delay)
@@ -868,16 +844,39 @@ class TakeData:
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('120')
         print(self.k2700.get_closedChannels())
-        self.updateGUI(stamp="Time R_2413", data=self.t_2413)
-        self.updateGUI(stamp="R_2413", data=self.r_2413*1000)
         print "t_r2413: %.2f s\tr2413: %f Ohm" % (self.t_2413, self.r_2413)
 
         # Calculate r_B
         self.r_B = (self.r_1324 + self.r_2413)/2
         self.t_B = time.time()-self.start
         self.updateGUI(stamp="Time R_B", data=self.t_B)
-        self.updateGUI(stamp="R_B", data=self.r_B)
+        self.updateGUI(stamp="R_B", data=self.r_B*1000)
         print "t_rB: %.2f s\trB: %f Ohm" % (self.t_B, self.r_B)
+    #end def
+
+    #--------------------------------------------------------------------------
+    def resistivitycalc(self,Alist,Blist):
+        global thickness
+        delta = 0.0005 # error limit (0.05%)
+        lim = 1
+        rA = np.average(Alist)
+        rB = np.average(Blist)
+
+        z1 = (2*np.log(2))/(np.pi*(rA + rB))
+
+        # Algorithm taken from http://www.nist.gov/pml/div683/hall_algorithm.cfm
+        while (lim > delta):
+            y = 1/np.exp(np.pi*z1*rA) + 1/np.exp(np.pi*z1*rB)
+
+            z2 = z1 - (1/np.pi)*((1-y)/(rA/np.exp(np.pi*z1*rA) + rB/np.exp(np.pi*z1*rB)))
+
+            lim = abs(z2 - z1)/z2
+
+            z1 = z2
+        #end while
+
+        rho = '%.2f'%(1/z1*float(thickness))
+        return rho
     #end def
 
     #--------------------------------------------------------------------------
@@ -965,7 +964,14 @@ class TakeData:
         self.updateGUI(stamp="Time R_P", data=self.t_P)
         self.updateGUI(stamp="R_P", data=self.r_P)
         print "tP: %.2f s\trP: %f Ohm" % (self.t_P, self.r_P)
+    #end def
 
+    #--------------------------------------------------------------------------
+    def hallcalc(self,d,B,rP,rho):
+        RH = (d*rP/B)*(10**4)
+        nH = 1/(RH*1.6*10**-19)/(10**18)
+        uH = RH/rho
+        return RH, nH, uH
     #end def
 
     #--------------------------------------------------------------------------
@@ -1008,7 +1014,6 @@ class TakeData:
         avgt = (t3 + t2 + t1)/3
 
         return r, avgt
-
     #end def
 
     #--------------------------------------------------------------------------
@@ -1048,23 +1053,51 @@ class TakeData:
         """
         time.sleep(0.1)
         wx.CallAfter(pub.sendMessage, stamp, msg=data)
-
     #end def
 
     #--------------------------------------------------------------------------
     def write_data_to_file(self):
+        global myfile
+        global timecalclist,rAcalclist,rBcalclist,rPcalclist,Bcalclist
 
         print('Write data to file')
         myfile.write('%.2f,' % (self.all_time) )
         print 'time: ', self.all_time
-        myfile.write('%s, %f,' % (self.thickness, np.abs(self.bfield)))
+        myfile.write('%s, %f,' % (self.thickness, self.bfield))
         print 'thickness (cm): ', self.thickness
         print 'bfield (T): ', self.bfield
-        myfile.write('%.2f,%.9f,%.2f,%.9f,%.2f,%.9f,%.2f,%.9f,' % self.resistances1)
-        myfile.write('%.2f,%.9f,%.2f,%.9f,%.2f,%.9f,%.2f,%.9f,' % self.resistances2)
-        #print 'resistances\n', self.resistances
-        myfile.write('%.9f,%.9f,%.9f\n' % (self.r_A, self.r_B, self.r_P) )
-        print 'r_A (Ohm): %.9f\nr_B (Ohm): %.9f\nr_P (Ohm):%.9f' % (self.r_A, self.r_B, self.r_P)
+
+        myfile.write('%.3f,%.3f,%.3f,' % (self.r_A*1000, self.r_B*1000, self.r_P*1000) )
+        print 'r_A (mOhm): %.3f\nr_B (mOhm): %.3f\nr_P (mOhm):%.3f' % (self.r_A*1000, self.r_B*1000, self.r_P*1000)
+        myfile.write('%.3f,%.3f,%.3f,%.3f' % (self.resistivity*1000,self.hallcoeff,self.concentration,self.mobility))
+        print 'resistivity (mOhm*cm): %.3f' %(self.resistivity*1000)
+        print 'hall coefficient (cm^3/C): %.3f' %(self.hallcoeff)
+        print 'carrier concentration (10^18 cm^-3): %.3f' %(self.concentration)
+        print 'hall mobility (cm^2/Vs): %.3f' %(self.mobility)
+
+
+        timecalclist.append(self.all_time)
+        rAcalclist.append(self.r_A)
+        rBcalclist.append(self.r_B)
+        rPcalclist.append(self.r_P)
+        Bcalclist.append(self.bfield)
+    #end def
+
+    #--------------------------------------------------------------------------
+    def process_data(self):
+        global timecalclist, rAcalclist, rBcalclist, rPcalclist, Bcalclist
+        global processfile
+
+        time = np.average(timecalclist)
+        B = np.average(Bcalclist)
+        rP = np.average(rPcalclist)
+        thickness = self.thickness
+
+        resistivity = self.resistivitycalc(rAcalclist,rBcalclist)
+        hallcoeff, concentration, mobility = self.hallcalc(thickness, B, rP, resistivity)
+
+
+        processfile.write('%.1f,%.5f,%.5f,%.5f,%5f\n'%(time,resistivity*1000,hallcoeff,concentration,mobility))
     #end def
 
     #--------------------------------------------------------------------------
@@ -1078,19 +1111,21 @@ class TakeData:
         global dataFile
         global finaldataFile
         global myfile
+        global processfile
 
         stop = time.time()
         end = datetime.now() # End time
         totalTime = stop - self.start # Elapsed Measurement Time (seconds)
+        endStr = 'end time: %s \nelapsed measurement time: %s seconds \n \n' % (str(end), str(totalTime))
 
         myfile.close() # Close the file
+        processfile.close()
 
         myfile = open(dataFile, 'r') # Opens the file for Reading
         contents = myfile.readlines() # Reads the lines of the file into python set
         myfile.close()
 
         # Adds elapsed measurement time to the read file list
-        endStr = 'End Time: %s \nElapsed Measurement Time: %s Seconds \n \n' % (str(end), str(totalTime))
         contents.insert(1, endStr) # Specify which line and what value to insert
         # NOTE: First line is line 0
 
@@ -1100,15 +1135,8 @@ class TakeData:
         myfinalfile.write(contents)
         myfinalfile.close()
 
-        inFile = filePath + '/Data.csv'
-        outFile = filePath + '/Final Data.csv'
-        RT_Hall_Processing_v1.output_file(inFile, outFile)
-
         # Save the GUI plots
-        global save_plots_ID
-        save_plots_ID = 1
         self.updateGUI(stamp='Save_All', data='Save')
-
     #end def
 
 #end class
@@ -1191,12 +1219,12 @@ class UserPanel(wx.Panel):
         global magrate
         global thickness
         global poledist
-        global measurement_time
+        global measurement_number
 
         self.current = current*1000
         self.magcurrent = magcurrent
         self.magrate = magrate
-        self.measurement_time = measurement_time/60
+        self.measurement_number = measurement_number/60
 
         self.create_title("User Panel") # Title
 
@@ -1207,7 +1235,7 @@ class UserPanel(wx.Panel):
         self.mag_rate_control()
         self.thickness_control()
         self.poledist_control()
-        self.measurement_time_control()
+        self.measurement_number_control()
 
         self.maxCurrent_label()
         self.maxMagCurrent_label()
@@ -1288,7 +1316,7 @@ class UserPanel(wx.Panel):
         global r_A_list, t_A_list, r_B_list, t_B_list, r_P_list, t_P_list
         global r_1234_list, r_3412_list, r_1324_list, r_2413_list, r_1423_list, r_2314_list
         global t_1234_list, t_3412_list, t_1324_list, t_2413_list, t_1423_list, t_2314_list
-        global current, measurement_time
+        global current, measurement_number
         global abort_ID
 
         try:
@@ -1297,24 +1325,35 @@ class UserPanel(wx.Panel):
 
             file = dataFile # creates a data file
             myfile = open(dataFile, 'w') # opens file for writing/overwriting
+            processfile = open(hallFile,'w')
             begin = datetime.now() # Current date and time
             myfile.write('Start Time: ' + str(begin) + '\n')
+            processfile.write('Start Time: ' + str(begin) + '\n')
 
-            resistances1 = 't_1234,r_1234,t_3412,r_3412,t_1324,r_1324,t_2413,r_2413'
-            resistances2 =  'tp_1423,rp_1423,tn_1423,rn_1423,tp_2314,rp_2314,tn_2314,rn_2314'
-            headers = ( 'time (s),thickness (cm), B-field (T),%s,%s,' % (resistances1, resistances2) + 'r_A,r_B,r_P' )
+            dataheaders = ( 'time (s),thickness (cm), B-field (T),R_A (mOhm),R_B (mOhm),R_P (mOhm),Resistivity (mOhm*cm), Hall Coefficient (cm^3/C),Carrier Concentration (cm^-3),Hall Mobility (cm^2/Vs)\n' )
+            myfile.write(dataheaders)
 
-            myfile.write(headers)
-            myfile.write('\n')
+            processheaders = 'time (s),resistivity (mOhm*cm),hall coefficient (cm^3/C),carrier concentration (cm^-3),hall mobility (cm^2/Vs)\n'
+            processfile.write(processheaders)
 
             abort_ID = 0
 
             #start the threading process
-            
+
             thread = ProcessThreadRun()
 
-            self.btn_run.Disable()
+            self.btn_current.Disable()
+            self.btn_mag_current.Disable()
+            self.btn_mag_rate.Disable()
+            self.btn_thickness.Disable()
+            self.btn_poledist.Disable()
+            self.btn_measurement_number.Disable()
+            self.btn_new.Disable()
+            self.btn_ren.Disable()
+            self.btn_dlt.Disable()
+            self.btn_clr.Disable()
             self.btn_check.Disable()
+            self.btn_run.Disable()
             self.btn_stop.Enable()
 
 
@@ -1653,45 +1692,45 @@ class UserPanel(wx.Panel):
     #end def
 
     #--------------------------------------------------------------------------
-    def measurement_time_control(self):
-        global measurement_time
-        self.measurement_time_Panel = wx.Panel(self, -1)
+    def measurement_number_control(self):
+        global measurement_number
+        self.measurement_number_Panel = wx.Panel(self, -1)
         hbox = wx.BoxSizer(wx.HORIZONTAL)
 
-        self.label_measurement_time = wx.StaticText(self,
-                                            label="Measurement Time:"
+        self.label_measurement_number = wx.StaticText(self,
+                                            label="Measurement Number:"
                                             )
-        self.label_measurement_time.SetFont(self.font2)
-        self.text_measurement_time = text_measurement_time = wx.StaticText(self.measurement_time_Panel, label=str(self.measurement_time) + ' min')
-        text_measurement_time.SetFont(self.font2)
-        self.edit_measurement_time = edit_measurement_time = wx.TextCtrl(self.measurement_time_Panel, size=(40, -1))
-        self.btn_measurement_time = btn_measurement_time = wx.Button(self.measurement_time_Panel, label="Save", size=(40, -1))
-        text_guide = wx.StaticText(self.measurement_time_Panel, label=('How long each measurement \nwill take in minutes.'
+        self.label_measurement_number.SetFont(self.font2)
+        self.text_measurement_number = text_measurement_number = wx.StaticText(self.measurement_number_Panel, label=str(self.measurement_number))
+        text_measurement_number.SetFont(self.font2)
+        self.edit_measurement_number = edit_measurement_number = wx.TextCtrl(self.measurement_number_Panel, size=(40, -1))
+        self.btn_measurement_number = btn_measurement_number = wx.Button(self.measurement_number_Panel, label="Save", size=(40, -1))
+        text_guide = wx.StaticText(self.measurement_number_Panel, label=('How many measurements \nto take.'
                                                                       )
                                    )
 
-        btn_measurement_time.Bind(wx.EVT_BUTTON, self.save_measurement_time)
+        btn_measurement_number.Bind(wx.EVT_BUTTON, self.save_measurement_number)
 
         hbox.Add((0, -1))
         #hbox.Add(self.label_equil_threshold, 0 , wx.LEFT, 5)
-        hbox.Add(text_measurement_time, 0, wx.LEFT, 5)
-        hbox.Add(edit_measurement_time, 0, wx.LEFT, 32)
-        hbox.Add(btn_measurement_time, 0, wx.LEFT, 5)
+        hbox.Add(text_measurement_number, 0, wx.LEFT, 5)
+        hbox.Add(edit_measurement_number, 0, wx.LEFT, 32)
+        hbox.Add(btn_measurement_number, 0, wx.LEFT, 5)
         hbox.Add(text_guide, 0, wx.LEFT, 5)
 
-        self.measurement_time_Panel.SetSizer(hbox)
+        self.measurement_number_Panel.SetSizer(hbox)
 
     #end def
 
     #--------------------------------------------------------------------------
-    def save_measurement_time(self, e):
-        global measurement_time
+    def save_measurement_number(self, e):
+        global measurement_number
 
         try:
-            val = self.edit_measurement_time.GetValue()
-            self.measurement_time = float(val)
-            self.text_measurement_time.SetLabel(val + ' min')
-            measurement_time = self.measurement_time*60
+            val = self.edit_measurement_number.GetValue()
+            self.measurement_number = float(val)
+            self.text_measurement_number.SetLabel(val)
+            measurement_number = int(self.measurement_number)
         except ValueError:
 
             wx.MessageBox("Invalid input. Must be a number.", "Error")
@@ -1763,8 +1802,8 @@ class UserPanel(wx.Panel):
         sizer.Add(self.label_poledist, (5, 1))
         sizer.Add(self.poledist_Panel, (5, 2))
 
-        sizer.Add(self.label_measurement_time, (6,1))
-        sizer.Add(self.measurement_time_Panel, (6, 2))
+        sizer.Add(self.label_measurement_number, (6,1))
+        sizer.Add(self.measurement_number_Panel, (6, 2))
         sizer.Add(self.maxCurrent_Panel, (7, 1), span=(1,2))
         sizer.Add(self.maxMagCurrent_Panel, (8, 1), span=(1,2))
         sizer.Add(self.maxMagRate_Panel, (9, 1), span=(1,2))
@@ -1777,8 +1816,19 @@ class UserPanel(wx.Panel):
     #end def
 
     def enable_buttons(self):
+        self.btn_current.Enable()
+        self.btn_mag_current.Enable()
+        self.btn_mag_rate.Enable()
+        self.btn_thickness.Enable()
+        self.btn_poledist.Enable()
+        self.btn_measurement_number.Enable()
+        self.btn_new.Enable()
+        self.btn_ren.Enable()
+        self.btn_dlt.Enable()
+        self.btn_clr.Enable()
+        self.btn_check.Enable()
         self.btn_run.Enable()
-        self.btn_stop.Disable()
+        self.btn_stop.Enable()
 
     #end def
 
@@ -1811,6 +1861,7 @@ class StatusPanel(wx.Panel):
         self.b = str(0.00)
         self.measurement = 'OFF'
         self.rho = str(0.00)
+        self.RH = str(0.00)
         self.nH = str(0.00)
         self.uH = str(0.00)
 
@@ -1829,9 +1880,6 @@ class StatusPanel(wx.Panel):
         pub.subscribe(self.OnTime, "Time R_B")
         pub.subscribe(self.OnTime, "Time R_A")
         pub.subscribe(self.OnTime, "Time R_P")
-        pub.subscribe(self.OnTime, "Time Heater Temp")
-        pub.subscribe(self.OnTime, "Time Sample Temp")
-
 
         pub.subscribe(self.OnThickness, "Sample Thickness")
         pub.subscribe(self.OnPoleDist, "Pole Distance")
@@ -1845,17 +1893,12 @@ class StatusPanel(wx.Panel):
         pub.subscribe(self.OnMagRate, "Mag Rate")
         pub.subscribe(self.OnBfield, "Bfield")
 
+        pub.subscribe(self.OnResistivity, "Resistivity")
+        pub.subscribe(self.OnHallCoefficient, "Hall Coefficient")
+        pub.subscribe(self.OnConcentration, "CarrierConcentration")
+        pub.subscribe(self.OnMobility, "Mobility")
+
         pub.subscribe(self.OnMeasurement, "Measurement")
-
-        # Updates from inital check
-        pub.subscribe(self.OnR_A, "R_A Status")
-        pub.subscribe(self.OnR_B, "R_B Status")
-        pub.subscribe(self.OnR_P, "R_P Status")
-
-        pub.subscribe(self.OnCurrent, "Current Status")
-        pub.subscribe(self.OnMagCurrent, "Mag Current Status")
-        pub.subscribe(self.OnMagRate, "Mag Rate Status")
-        pub.subscribe(self.OnBfield, "Bfield Status")
 
         #self.update_values()
 
@@ -1872,14 +1915,12 @@ class StatusPanel(wx.Panel):
     #--------------------------------------------------------------------------
     def OnR_B(self, msg):
         self.rB = '%.2f'%(float(msg)*1000)
-        self.instant_resistivity()
         self.update_values()
     #end def
 
     #--------------------------------------------------------------------------
     def OnR_P(self, msg):
         self.rP = '%.2f'%(float(msg)*1000)
-        self.instant_hall()
         self.update_values()
     #end def
 
@@ -1898,12 +1939,6 @@ class StatusPanel(wx.Panel):
     #--------------------------------------------------------------------------
     def OnMagRate(self, msg):
         self.mr = '%.2f'%(float(msg))
-        self.update_values()
-    #end def
-
-    #--------------------------------------------------------------------------
-    def OnCTime(self, msg):
-
         self.update_values()
     #end def
 
@@ -1947,51 +1982,33 @@ class StatusPanel(wx.Panel):
     #end def
 
     #--------------------------------------------------------------------------
-    def OnMeasurement(self, msg):
-        self.measurement = msg
+    def OnResistivity(self, msg):
+        self.rho = '%.2f'%(float(msg)*1000)
         self.update_values()
     #end def
 
     #--------------------------------------------------------------------------
-    def instant_resistivity(self):
-        global thickness
-        delta = 0.0005 # error limit (0.05%)
-        lim = 1
-        rA = float(self.rA)/1000
-        rB = float(self.rB)/1000
-
-        z1 = (2*np.log(2))/(np.pi*(rA + rB))
-
-
-
-        # Algorithm taken from http://www.nist.gov/pml/div683/hall_algorithm.cfm
-        while (lim > delta):
-            y = 1/np.exp(np.pi*z1*rA) + 1/np.exp(np.pi*z1*rB)
-
-            z2 = z1 - (1/np.pi)*((1-y)/(rA/np.exp(np.pi*z1*rA) + rB/np.exp(np.pi*z1*rB)))
-
-            lim = abs(z2 - z1)/z2
-
-            z1 = z2
-
-
-
-        #end while
-        self.rho = '%.3f'%(1/z2*float(thickness)*1000)
-
+    def OnHallCoefficient(self, msg):
+        self.RH = '%.2f'%(float(msg))
+        self.update_values()
     #end def
 
     #--------------------------------------------------------------------------
-    def instant_hall(self):
-        global magcurrent
-        global poledist
-        global thickness
+    def OnConcentration(self, msg):
+        self.nH = '%.2f'%(float(msg))
+        self.update_values()
+    #end def
 
-        B = fieldInterp(float(poledist), float(magcurrent))/10.0
-        RH = (float(thickness)*(float(self.rP)/1000)/B)*(10**4)
-        self.nH = '%.3f'%(1/(RH*1.6*10**-19)/(10**18))
-        self.uH = '%.3f'%(RH/(float(self.rho)/1000))
+    #--------------------------------------------------------------------------
+    def OnMobility(self, msg):
+        self.uH = '%.2f'%(float(msg))
+        self.update_values()
+    #end def
 
+    #--------------------------------------------------------------------------
+    def OnMeasurement(self, msg):
+        self.measurement = msg
+        self.update_values()
     #end def
 
     #--------------------------------------------------------------------------
@@ -2036,6 +2053,8 @@ class StatusPanel(wx.Panel):
         self.label_measurement.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_rho = wx.StaticText(self, label="resistivity (m"+self.ohm+"cm):")
         self.label_rho.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.label_RH = wx.StaticText(self, label="hall Coefficient (cm^3/C):")
+        self.label_RH.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_nH = wx.StaticText(self, label="carrier concentration (10^18 cm^-3):")
         self.label_nH.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_uH = wx.StaticText(self, label="hall mobility (cm^2/Vs):")
@@ -2067,6 +2086,8 @@ class StatusPanel(wx.Panel):
         self.measurementcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.rhocurrent = wx.StaticText(self, label=self.rho)
         self.rhocurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.RHcurrent = wx.StaticText(self, label=self.RH)
+        self.RHcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.nHcurrent = wx.StaticText(self, label=self.nH)
         self.nHcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.uHcurrent = wx.StaticText(self, label=self.uH)
@@ -2090,6 +2111,7 @@ class StatusPanel(wx.Panel):
         self.bcurrent.SetLabel(self.b)
         self.measurementcurrent.SetLabel(self.measurement)
         self.rhocurrent.SetLabel(self.rho)
+        self.RHcurrent.SetLabel(self.RH)
         self.nHcurrent.SetLabel(self.nH)
         self.uHcurrent.SetLabel(self.uH)
 
@@ -2097,7 +2119,7 @@ class StatusPanel(wx.Panel):
 
     #--------------------------------------------------------------------------
     def create_sizer(self):
-        sizer = wx.GridBagSizer(18,2)
+        sizer = wx.GridBagSizer(19,2)
 
         sizer.Add(self.titlePanel, (0, 0), span = (1,2), border=5, flag=wx.ALIGN_CENTER_HORIZONTAL)
         sizer.Add(self.linebreak1,(1,0), span = (1,2))
@@ -2129,15 +2151,17 @@ class StatusPanel(wx.Panel):
 
         sizer.Add(self.label_rho, (13,0))
         sizer.Add(self.rhocurrent, (13, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_nH, (14,0))
-        sizer.Add(self.nHcurrent, (14, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_uH, (15,0))
-        sizer.Add(self.uHcurrent, (15, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_RH, (14,0))
+        sizer.Add(self.current, (14, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_nH, (15,0))
+        sizer.Add(self.nHcurrent, (15, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_uH, (16,0))
+        sizer.Add(self.uHcurrent, (16, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
-        sizer.Add(self.label_measurement, (16,0))
-        sizer.Add(self.measurementcurrent, (16, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_measurement, (17,0))
+        sizer.Add(self.measurementcurrent, (17, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
-        sizer.Add(self.linebreak2, (17,0), span = (1,2))
+        sizer.Add(self.linebreak2, (18,0), span = (1,2))
 
         self.SetSizer(sizer)
     #end def
@@ -2432,10 +2456,10 @@ class Frame(wx.Frame):
         #self.width1 = measurement_text.GetRect().width + self.space_between
 
         # Measurement Time:
-        measurement_time_text = wx.StaticText(self.statusbar, -1, "Time Until Measurement Complete:")
-        self.width6 = measurement_time_text.GetRect().width + self.space_between
+        measurement_number_text = wx.StaticText(self.statusbar, -1, "Time Until Measurement Complete:")
+        self.width6 = measurement_number_text.GetRect().width + self.space_between
 
-        self.indicator_measurement_time = wx.StaticText(self.statusbar, -1, "-")
+        self.indicator_measurement_number = wx.StaticText(self.statusbar, -1, "-")
         self.width7 = 40
 
         # Placer 2:
@@ -2459,8 +2483,8 @@ class Frame(wx.Frame):
         #self.statusbar.AddWidget(measurement_text, ESB.ESB_ALIGN_CENTER_HORIZONTAL, ESB.ESB_ALIGN_CENTER_VERTICAL)
 
         # Measurement Time:
-        self.statusbar.AddWidget(measurement_time_text, ESB.ESB_ALIGN_CENTER_HORIZONTAL, ESB.ESB_ALIGN_CENTER_VERTICAL)
-        self.statusbar.AddWidget(self.indicator_measurement_time, ESB.ESB_ALIGN_CENTER_HORIZONTAL, ESB.ESB_ALIGN_CENTER_VERTICAL)
+        self.statusbar.AddWidget(measurement_number_text, ESB.ESB_ALIGN_CENTER_HORIZONTAL, ESB.ESB_ALIGN_CENTER_VERTICAL)
+        self.statusbar.AddWidget(self.indicator_measurement_number, ESB.ESB_ALIGN_CENTER_HORIZONTAL, ESB.ESB_ALIGN_CENTER_VERTICAL)
 
         # Placer 2
         self.statusbar.AddWidget(placer2)
@@ -2487,7 +2511,7 @@ class Frame(wx.Frame):
 
         # Measurement Timer:
         else:
-            self.indicator_measurement_time.SetLabel(string[:-3] + ' (s)')
+            self.indicator_measurement_number.SetLabel(string[:-3] + ' (s)')
 
         #end else
 
