@@ -90,6 +90,12 @@ t_B_list = []
 r_P_list = []
 t_P_list = []
 
+timecalclist = [] 
+rAcalclist = [] 
+rBcalclist = [] 
+rPcalclist = []
+Bcalclist = []
+
 
 #ResourceManager for visa instrument control
 ResourceManager = visa.ResourceManager()
@@ -727,7 +733,7 @@ class TakeData:
                 ### HALL EFFECT MEASUREMENTS ###
                 self.Hall_Measurement()
                 if abort_ID == 1: break
-                self.hallcoeff, self.concentration, self.mobility = self.hallcalc(self.thickness, self.bfield, self.R_P, self.resistivity)
+                self.hallcoeff, self.concentration, self.mobility = self.hallcalc(self.thickness, self.bfield, self.r_P, self.resistivity)
 
                 self.all_time = (self.t_A + self.t_B + self.t_P)/3
                 self.updateGUI(stamp = "Hall Coefficient", data = self.hallcoeff)
@@ -736,7 +742,7 @@ class TakeData:
 
                 self.write_data_to_file()
             #end for
-            if abort_ID == 1: break
+            
 
         #end try
 
@@ -791,7 +797,7 @@ class TakeData:
         print "t_r1234: %.2f s\tr1234: %f Ohm" % (self.t_1234, self.r_1234)
 
         time.sleep(self.delay)
-
+        if abort_ID == 1: return
         # r_34,12
         print('measure r_34,12')
         self.k2700.closeChannels('118')
@@ -807,7 +813,7 @@ class TakeData:
         print "t_r3412: %.2f s\tr3412: %f Ohm" % (self.t_3412, self.r_3412)
 
         time.sleep(self.delay)
-
+        if abort_ID == 1: return
         # Calculate r_A
         self.r_A = (self.r_1234 + self.r_3412)/2
         self.t_A = time.time()-self.start
@@ -831,7 +837,7 @@ class TakeData:
         print "t_r1324: %.2f s\tr1324: %f Ohm" % (self.t_1324, self.r_1324)
 
         time.sleep(self.delay)
-
+        if abort_ID == 1: return
         # r_24,13
         print('measure r_24,13')
         self.k2700.closeChannels('120')
@@ -845,7 +851,7 @@ class TakeData:
         self.k2700.openChannels('120')
         print(self.k2700.get_closedChannels())
         print "t_r2413: %.2f s\tr2413: %f Ohm" % (self.t_2413, self.r_2413)
-
+        if abort_ID == 1: return
         # Calculate r_B
         self.r_B = (self.r_1324 + self.r_2413)/2
         self.t_B = time.time()-self.start
@@ -875,7 +881,7 @@ class TakeData:
             z1 = z2
         #end while
 
-        rho = '%.2f'%(1/z1*float(thickness))
+        rho = 1/z1*float(thickness)
         return rho
     #end def
 
@@ -900,7 +906,7 @@ class TakeData:
         self.k2700.openChannels('121')
         print(self.k2700.get_closedChannels())
         print "tp1423: %.2f s\trp1423: %f Ohm" % (self.tp_1423, self.rp_1423)
-
+        if abort_ID == 1: return
         # rp_23,14
         print('measure rp_23,14')
         self.k2700.closeChannels('122')
@@ -915,7 +921,7 @@ class TakeData:
         self.k2700.openChannels('122')
         print(self.k2700.get_closedChannels())
         print "tp2314: %.2f s\trp2314: %f Ohm" % (self.tp_2314, self.rp_2314)
-
+        if abort_ID == 1: return
         # postive magnetic field
         self.magfield('neg')
         b2 = np.abs(fieldInterp(self.poledist, self.magcurrent))/10.0
@@ -934,7 +940,7 @@ class TakeData:
         self.k2700.openChannels('121')
         print(self.k2700.get_closedChannels())
         print "tn1423: %.2f s\trn1423: %f Ohm" % (self.tn_1423, self.rn_1423)
-
+        if abort_ID == 1: return
         time.sleep(self.delay)
 
         # rn_23,14
@@ -951,7 +957,7 @@ class TakeData:
         self.k2700.openChannels('122')
         print(self.k2700.get_closedChannels())
         print "tn2314: %.2f s\trn2314: %f Ohm" % (self.tn_2314, self.rn_2314)
-
+        if abort_ID == 1: return
         # turn off magnetic field & calculate r_perp
         self.magfield('off')
         self.r_1423 = (self.rp_1423-self.rn_1423)/2
@@ -1069,7 +1075,7 @@ class TakeData:
 
         myfile.write('%.3f,%.3f,%.3f,' % (self.r_A*1000, self.r_B*1000, self.r_P*1000) )
         print 'r_A (mOhm): %.3f\nr_B (mOhm): %.3f\nr_P (mOhm):%.3f' % (self.r_A*1000, self.r_B*1000, self.r_P*1000)
-        myfile.write('%.3f,%.3f,%.3f,%.3f' % (self.resistivity*1000,self.hallcoeff,self.concentration,self.mobility))
+        myfile.write('%.3f,%.3f,%.3f,%.3f\n' % (self.resistivity*1000,self.hallcoeff,self.concentration,self.mobility))
         print 'resistivity (mOhm*cm): %.3f' %(self.resistivity*1000)
         print 'hall coefficient (cm^3/C): %.3f' %(self.hallcoeff)
         print 'carrier concentration (10^18 cm^-3): %.3f' %(self.concentration)
@@ -1224,7 +1230,7 @@ class UserPanel(wx.Panel):
         self.current = current*1000
         self.magcurrent = magcurrent
         self.magrate = magrate
-        self.measurement_number = measurement_number/60
+        self.measurement_number = measurement_number
 
         self.create_title("User Panel") # Title
 
@@ -1313,10 +1319,8 @@ class UserPanel(wx.Panel):
         global dataFile
         global finaldataFile
         global myfile
-        global r_A_list, t_A_list, r_B_list, t_B_list, r_P_list, t_P_list
-        global r_1234_list, r_3412_list, r_1324_list, r_2413_list, r_1423_list, r_2314_list
-        global t_1234_list, t_3412_list, t_1324_list, t_2413_list, t_1423_list, t_2314_list
-        global current, measurement_number
+        global processfile
+        global hallFile
         global abort_ID
 
         try:
@@ -1333,7 +1337,7 @@ class UserPanel(wx.Panel):
             dataheaders = ( 'time (s),thickness (cm), B-field (T),R_A (mOhm),R_B (mOhm),R_P (mOhm),Resistivity (mOhm*cm), Hall Coefficient (cm^3/C),Carrier Concentration (cm^-3),Hall Mobility (cm^2/Vs)\n' )
             myfile.write(dataheaders)
 
-            processheaders = 'time (s),resistivity (mOhm*cm),hall coefficient (cm^3/C),carrier concentration (cm^-3),hall mobility (cm^2/Vs)\n'
+            processheaders = 'time (s),resistivity (mOhm*cm),hall coefficient (cm^3/C),carrier concentration (10^18 cm^-3),hall mobility (cm^2/Vs)\n'
             processfile.write(processheaders)
 
             abort_ID = 0
@@ -1348,10 +1352,6 @@ class UserPanel(wx.Panel):
             self.btn_thickness.Disable()
             self.btn_poledist.Disable()
             self.btn_measurement_number.Disable()
-            self.btn_new.Disable()
-            self.btn_ren.Disable()
-            self.btn_dlt.Disable()
-            self.btn_clr.Disable()
             self.btn_check.Disable()
             self.btn_run.Disable()
             self.btn_stop.Enable()
@@ -1822,13 +1822,9 @@ class UserPanel(wx.Panel):
         self.btn_thickness.Enable()
         self.btn_poledist.Enable()
         self.btn_measurement_number.Enable()
-        self.btn_new.Enable()
-        self.btn_ren.Enable()
-        self.btn_dlt.Enable()
-        self.btn_clr.Enable()
         self.btn_check.Enable()
         self.btn_run.Enable()
-        self.btn_stop.Enable()
+        self.btn_stop.Disable()
 
     #end def
 
@@ -1895,7 +1891,7 @@ class StatusPanel(wx.Panel):
 
         pub.subscribe(self.OnResistivity, "Resistivity")
         pub.subscribe(self.OnHallCoefficient, "Hall Coefficient")
-        pub.subscribe(self.OnConcentration, "CarrierConcentration")
+        pub.subscribe(self.OnConcentration, "Carrier Concentration")
         pub.subscribe(self.OnMobility, "Mobility")
 
         pub.subscribe(self.OnMeasurement, "Measurement")
@@ -1908,19 +1904,19 @@ class StatusPanel(wx.Panel):
 
     #--------------------------------------------------------------------------
     def OnR_A(self, msg):
-        self.rA = '%.2f'%(float(msg)*1000)
+        self.rA = '%.2f'%(float(msg))
         self.update_values()
     #end def
 
     #--------------------------------------------------------------------------
     def OnR_B(self, msg):
-        self.rB = '%.2f'%(float(msg)*1000)
+        self.rB = '%.2f'%(float(msg))
         self.update_values()
     #end def
 
     #--------------------------------------------------------------------------
     def OnR_P(self, msg):
-        self.rP = '%.2f'%(float(msg)*1000)
+        self.rP = '%.2f'%(float(msg))
         self.update_values()
     #end def
 
@@ -1983,7 +1979,7 @@ class StatusPanel(wx.Panel):
 
     #--------------------------------------------------------------------------
     def OnResistivity(self, msg):
-        self.rho = '%.2f'%(float(msg)*1000)
+        self.rho = '%.2f'%(float(msg))
         self.update_values()
     #end def
 
@@ -2053,7 +2049,7 @@ class StatusPanel(wx.Panel):
         self.label_measurement.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_rho = wx.StaticText(self, label="resistivity (m"+self.ohm+"cm):")
         self.label_rho.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_RH = wx.StaticText(self, label="hall Coefficient (cm^3/C):")
+        self.label_RH = wx.StaticText(self, label="hall coefficient (cm^3/C):")
         self.label_RH.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_nH = wx.StaticText(self, label="carrier concentration (10^18 cm^-3):")
         self.label_nH.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
@@ -2152,7 +2148,7 @@ class StatusPanel(wx.Panel):
         sizer.Add(self.label_rho, (13,0))
         sizer.Add(self.rhocurrent, (13, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
         sizer.Add(self.label_RH, (14,0))
-        sizer.Add(self.current, (14, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.RHcurrent, (14, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
         sizer.Add(self.label_nH, (15,0))
         sizer.Add(self.nHcurrent, (15, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
         sizer.Add(self.label_uH, (16,0))
