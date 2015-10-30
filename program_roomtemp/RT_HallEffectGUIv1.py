@@ -90,9 +90,9 @@ t_B_list = []
 r_P_list = []
 t_P_list = []
 
-timecalclist = [] 
-rAcalclist = [] 
-rBcalclist = [] 
+timecalclist = []
+rAcalclist = []
+rBcalclist = []
 rPcalclist = []
 Bcalclist = []
 
@@ -742,7 +742,7 @@ class TakeData:
 
                 self.write_data_to_file()
             #end for
-            
+
 
         #end try
 
