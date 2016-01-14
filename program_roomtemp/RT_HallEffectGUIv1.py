@@ -974,7 +974,7 @@ class TakeData:
 
     #--------------------------------------------------------------------------
     def hallcalc(self,d,B,rP,rho):
-        RH = (d*rP/B)*(10**4)
+        RH = -1*(d*rP/B)*(10**4)
         nH = 1/(RH*1.6*10**-19)/(10**18)
         uH = RH/rho
         return RH, nH, uH
@@ -1067,15 +1067,15 @@ class TakeData:
         global timecalclist,rAcalclist,rBcalclist,rPcalclist,Bcalclist
 
         print('Write data to file')
-        myfile.write('%.2f,' % (self.all_time) )
+        myfile.write('%.3f,' % (self.all_time) )
         print 'time: ', self.all_time
-        myfile.write('%s, %f,' % (self.thickness, self.bfield))
+        myfile.write('%.6f, %.6f,' % (float(self.thickness), self.bfield))
         print 'thickness (cm): ', self.thickness
         print 'bfield (T): ', self.bfield
 
-        myfile.write('%.3f,%.3f,%.3f,' % (self.r_A*1000, self.r_B*1000, self.r_P*1000) )
+        myfile.write('%.6f,%.6f,%.6f,' % (self.r_A*1000, self.r_B*1000, self.r_P*1000) )
         print 'r_A (mOhm): %.3f\nr_B (mOhm): %.3f\nr_P (mOhm):%.3f' % (self.r_A*1000, self.r_B*1000, self.r_P*1000)
-        myfile.write('%.3f,%.3f,%.3f,%.3f\n' % (self.resistivity*1000,self.hallcoeff,self.concentration,self.mobility))
+        myfile.write('%.6f,%.6f,%.6f,%.6f\n' % (self.resistivity*1000,self.hallcoeff,self.concentration,self.mobility))
         print 'resistivity (mOhm*cm): %.3f' %(self.resistivity*1000)
         print 'hall coefficient (cm^3/C): %.3f' %(self.hallcoeff)
         print 'carrier concentration (10^18 cm^-3): %.3f' %(self.concentration)
@@ -1103,7 +1103,7 @@ class TakeData:
         hallcoeff, concentration, mobility = self.hallcalc(thickness, B, rP, resistivity)
 
 
-        processfile.write('%.1f,%.5f,%.5f,%.5f,%5f\n'%(time,resistivity*1000,hallcoeff,concentration,mobility))
+        processfile.write('%.1f,%.6f,%.6f,%.6f,%6f\n'%(time,resistivity*1000,hallcoeff,concentration,mobility))
     #end def
 
     #--------------------------------------------------------------------------
