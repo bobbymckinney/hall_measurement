@@ -1,13 +1,16 @@
-% Heated Rod in an Enclosure
-% Jon Rea
-% 4-18-15
+% Heated Tube in an Enclosure with Convection
+% Bobby McKinney
+% 2-5-16
 
 % Known Values
-Tin = 600 ;%C
+Tin = 500 ;%C
+Tair = 30; %C
 Twall = 30 ;%C
-s = 0.0008;%m
-L = 0.20 ;%m
+r = .00644; %m
+t = .0008; %m
+L = 0.25 ;%m
 k = 330 ;%W/mK
+h = 100; %W/m^2K Convective heat transfer coefficient ~10-100
 sigma = 5.67*10^-8 ;%W/m^2K^4
 epsilon = 0.05 ;% (Emissivity of rod)
 
@@ -38,16 +41,16 @@ while sum(abs(Tguess-T)) > 0.01
 
     % Nodes i = 2:N-1
     for i = 2:N-1
-        A(i,i-1) = k*s^2/dx ;
-        A(i,i) = -2*k*s^2/dx ;
-        A(i,i+1) = k*s^2/dx ;
-        b(i) = sigma*epsilon*4*s*dx*((Tguess(i)+273)^4 - (Twall+273)^4) ;
+        A(i,i-1) = k*pi*t*(2*r-t)/dx ;
+        A(i,i) = -2*k*pi*t*(2*r-t)/dx - 2*pi*h*(r-t)*dx;
+        A(i,i+1) = k*pi*t*(2*r-t)/dx ;
+        b(i) = sigma*epsilon*2*pi*r*dx*((Tguess(i)+273)^4 - (Twall+273)^4) - 2*pi*h*(r-t)*dx*Tair;
     end
 
     % Node N
-    A(N,N-1) = k*s^2/dx ;
-    A(N,N) = -k*s^2/dx ;
-    b(N) = sigma*epsilon*(4*s*dx+s^2)*((Tguess(i)+273)^4 - (Twall+273)^4) ;
+    A(N,N-1) = k*pi*t*(2*r-t)/dx ;
+    A(N,N) = -k*pi*t*(2*r-t)/dx - 2*pi*h*(r-t)*dx;
+    b(N) = sigma*epsilon*(2*pi*r*dx+pi*t*(2*r-t))*((Tguess(i)+273)^4 - (Twall+273)^4) - 2*pi*h*(r-t)*dx*Tair;
 
     % Calculate Temperatures
     T = A\b ;
@@ -58,5 +61,5 @@ end
 plot(x,T,'k')
 xlabel('x (m)')
 ylabel('Temperature (C)')
-title('Rod Temperature Profile')
+title('Tube Temperature Profile')
 hold on

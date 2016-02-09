@@ -653,7 +653,7 @@ class InitialCheck:
 ###############################################################################
 
 ###############################################################################
-class ProcessThreadRun(Thread):
+class ProcessThread(Thread):
     """
     Thread that runs the operations behind the GUI. This includes measuring
     and plotting.
@@ -695,8 +695,8 @@ class TakeData:
         self.k2182 = k2182
         self.ls643 = ls643
 
-        self.delay = 1 # time for the keithley to take a steady measurement
-        self.magdelay = np.abs((magcurrent / magrate) + 3) # time for magnet to stabilize
+        self.delay = 2 # time for the keithley to take a steady measurement
+        self.magdelay = np.abs((magcurrent / magrate) + 6) # time for magnet to stabilize
 
         self.current = current
         self.magcurrent = 0
@@ -1344,7 +1344,7 @@ class UserPanel(wx.Panel):
 
             #start the threading process
 
-            thread = ProcessThreadRun()
+            thread = ProcessThread()
 
             self.btn_current.Disable()
             self.btn_mag_current.Disable()
